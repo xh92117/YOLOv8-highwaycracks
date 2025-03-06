@@ -14,9 +14,8 @@ from ultralytics.utils.checks import check_version
 from ultralytics.utils.instance import Instances
 from ultralytics.utils.metrics import bbox_ioa
 from ultralytics.utils.ops import segment2box
-
+from ultralytics.data.custom_augment import CustomAugment
 from .utils import polygons2masks, polygons2masks_overlap
-
 
 # TODO: we might need a BaseTransform to make all these augments be compatible with both classification and semantic
 class BaseTransform:
@@ -971,6 +970,32 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
             LOGGER.warning("WARNING ⚠️ No 'flip_idx' array defined in data.yaml, setting augmentation 'fliplr=0.0'")
         elif flip_idx and (len(flip_idx) != kpt_shape[0]):
             raise ValueError(f'data.yaml flip_idx={flip_idx} length must be equal to kpt_shape[0]={kpt_shape[0]}')
+        # ============== 修改开始 ==============
+        transforms = [
+            pre_transform,
+            MixUp(dataset, pre_transform=pre_transform, p=hyp.mixup),
+            Albumentations(p=1.0)
+        ]
+
+        # 插入自定义增强（条件判断）
+        if hyp.get('use_custom_augment', False):
+            transforms.append(
+                CustomAugment(
+                    p=hyp.get('custom_aug_p', 0.5),
+                    black_thresh=hyp.get('custom_black_thresh', 0.05),
+                    white_thresh=hyp.get('custom_white_thresh', 0.1),
+                    enhance_intensity=hyp.get('custom_enhance_intensity', 0.4),
+                    smooth_sigma=hyp.get('custom_smooth_sigma', 5)
+                )
+            )
+
+        # 保持原有增强流程
+        transforms += [
+            RandomHSV(hgain=hyp.hsv_h, sgain=hyp.hsv_s, vgain=hyp.hsv_v),
+            RandomFlip(direction='vertical', p=hyp.flipud),
+            RandomFlip(direction='horizontal', p=hyp.fliplr, flip_idx=flip_idx)
+        ]
+        # ============== 修改结束 ==============
 
     return Compose([
         pre_transform,
